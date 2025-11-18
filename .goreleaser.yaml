@@ -1,0 +1,21 @@
+version: 2
+
+builds:
+  - binary: imds-credential-server
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+kos:
+  - repositories: [ghcr.io/blairdrummond/imds-credential-server]
+    tags:
+      - "{{.Version}}"
+      - latest
+    bare: true
+    preserve_import_paths: false
+    platforms:
+      - linux/amd64
+      - linux/arm64

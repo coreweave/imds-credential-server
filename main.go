@@ -1,3 +1,7 @@
+// Adapted for use without AWS STS. Original License below.
+// This may only work on CoreWeave's Object Storage Service,
+// which has AWS-style credentials, but doesn't have Roles
+//
 // Copyright 2020 Ben Kehoe
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,7 +28,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -34,7 +37,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/sts"
 )
 
 var Version string = "0.4"
@@ -65,10 +67,8 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 }
 
 type Config struct {
-	secret        []byte
-	AwsConfig     aws.Config
-	PrincipalArn  string
-	PrincipalName string
+	secret    []byte
+	AwsConfig aws.Config
 }
 
 func NewConfig(awsCfg aws.Config) *Config {
@@ -78,28 +78,9 @@ func NewConfig(awsCfg aws.Config) *Config {
 		log.Fatal(err)
 	}
 
-	stsClient := sts.NewFromConfig(awsCfg)
-
-	resp, err := stsClient.GetCallerIdentity(context.TODO(), &sts.GetCallerIdentityInput{})
-	if err != nil {
-		log.Fatalf("Call to GetCallerIdentity failed, %v", err)
-	}
-	arn := resp.Arn
-	arnParts := strings.Split(*arn, ":")
-	nameParts := strings.Split(arnParts[len(arnParts)-1], "/")
-	nameType := nameParts[0]
-	var principalName string
-	if nameType == "user" {
-		principalName = nameParts[len(nameParts)-1]
-	} else {
-		principalName = nameParts[1]
-	}
-
 	return &Config{
-		secret:        secretBytes,
-		AwsConfig:     awsCfg,
-		PrincipalArn:  *arn,
-		PrincipalName: principalName,
+		secret:    secretBytes,
+		AwsConfig: awsCfg,
 	}
 }
 
@@ -219,18 +200,7 @@ func (cfg *Config) handleRequest(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if req.URL.Path == "/latest/meta-data/iam/security-credentials/" {
-		cfg.handleRoleRequest(w, req)
-		return
-	} else {
-		role := req.URL.Path[len("/latest/meta-data/iam/security-credentials/"):]
-		cfg.handleCredentialRequest(w, req, role)
-	}
-}
-
-func (cfg *Config) handleRoleRequest(w http.ResponseWriter, req *http.Request) {
-	w.Header().Add("Content-type", "text/plain")
-	io.WriteString(w, cfg.PrincipalName)
+	cfg.handleCredentialRequest(w, req)
 }
 
 // This is based on the example output in the IMDS documentation:
@@ -249,14 +219,8 @@ type Response struct {
 
 func generateResponseWithTemporaryCredentials(awsConfig aws.Config) (Response, error) {
 	response := Response{}
-	stsClient := sts.NewFromConfig(awsConfig)
-	sessionCreds, err := stsClient.GetSessionToken(context.TODO(), &sts.GetSessionTokenInput{})
-	if err != nil {
-		return response, err
-	}
 
-	// time.Time has a method of .String() but it returns it in a format we can't use.
-	sessionExpiration, err := sessionCreds.Credentials.Expiration.MarshalText()
+	creds, err := awsConfig.Credentials.Retrieve(context.TODO())
 	if err != nil {
 		return response, err
 	}
@@ -267,11 +231,17 @@ func generateResponseWithTemporaryCredentials(awsConfig aws.Config) (Response, e
 		return response, err
 	}
 
+	expirationTime := creds.Expires.UTC()
+	expiration, err := expirationTime.MarshalText()
+	if err != nil {
+		return response, err
+	}
+
 	response = Response{
-		AccessKeyId:     *sessionCreds.Credentials.AccessKeyId,
-		SecretAccessKey: *sessionCreds.Credentials.SecretAccessKey,
-		Token:           *sessionCreds.Credentials.SessionToken,
-		Expiration:      string(sessionExpiration),
+		AccessKeyId:     creds.AccessKeyID,
+		SecretAccessKey: creds.SecretAccessKey,
+		Token:           creds.SessionToken,
+		Expiration:      string(expiration),
 		Code:            "Success",
 		LastUpdated:     string(lastUpdated),
 		Type:            "AWS-HMAC",
@@ -326,7 +296,7 @@ func (cfg *Config) GenerateResponse() (Response, error) {
 	return response, nil
 }
 
-func (cfg *Config) handleCredentialRequest(w http.ResponseWriter, req *http.Request, role string) {
+func (cfg *Config) handleCredentialRequest(w http.ResponseWriter, _ *http.Request) {
 	response, err := cfg.GenerateResponse()
 	if err != nil {
 		log.Println(err)
@@ -349,6 +319,7 @@ func (cfg *Config) handleCredentialRequest(w http.ResponseWriter, req *http.Requ
 PUT /latest/api/token -> token
 GET /latest/meta-data/iam/security-credentials/ -> role name
 GET /latest/meta-data/iam/security-credentials/{role_name} -> creds
+the role_name can be blank
 */
 func (cfg *Config) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	log.Println(req.Method, req.URL.Path)
@@ -391,8 +362,6 @@ func main() {
 	}
 
 	config := NewConfig(awsConfig)
-
-	fmt.Printf("Identity: %s\n", config.PrincipalArn)
 
 	log.Fatal(http.ListenAndServe(*spec, config))
 }
