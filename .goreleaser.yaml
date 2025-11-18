@@ -10,7 +10,7 @@ builds:
       - arm64
 
 kos:
-  - repositories: [ghcr.io/blairdrummond/imds-credential-server]
+  - repositories: [ghcr.io/coreweave/imds-credential-server]
     tags:
       - "{{.Version}}"
       - latest
