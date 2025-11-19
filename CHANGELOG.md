@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.1](https://github.com/coreweave/imds-credential-server/compare/v1.0.0...v1.0.1) (2025-11-19)
+
+
+### Bug Fixes
+
+* mint a release ([16b094a](https://github.com/coreweave/imds-credential-server/commit/16b094aa59ff9c5a244afcba84797f78b7f17e4e))
+* mint a release ([d2fcddf](https://github.com/coreweave/imds-credential-server/commit/d2fcddf79a494eefabc0e855b1bae6c48765166d))
+
 ## 1.0.0 (2025-11-18)
 
 
