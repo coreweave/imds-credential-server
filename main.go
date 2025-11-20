@@ -322,7 +322,6 @@ GET /latest/meta-data/iam/security-credentials/{role_name} -> creds
 the role_name can be blank
 */
 func (cfg *Config) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	log.Println(req.Method, req.URL.Path)
 	if req.URL.Path == "/latest/api/token" {
 		cfg.handleTokenRequest(w, req)
 	} else if strings.HasPrefix(req.URL.Path, "/latest/meta-data/iam/security-credentials/") {
