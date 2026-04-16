@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/coreweave/imds-credential-server/compare/v1.0.2...v1.0.3) (2026-04-16)
+
+
+### Bug Fixes
+
+* Fix role endpoint ([4260ba1](https://github.com/coreweave/imds-credential-server/commit/4260ba1cb6f9f3ba7b5279119f0837e5d5d0cac2))
+
 ## [1.0.2](https://github.com/coreweave/imds-credential-server/compare/v1.0.1...v1.0.2) (2025-11-20)
 
 
