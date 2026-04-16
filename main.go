@@ -203,6 +203,26 @@ func (cfg *Config) handleRequest(w http.ResponseWriter, req *http.Request) {
 	cfg.handleCredentialRequest(w, req)
 }
 
+func (cfg *Config) handleRoleRequest(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "MethodNotAllowed", "Method not allowed")
+		return
+	}
+
+	token := req.Header.Get("x-aws-ec2-metadata-token")
+	if token == "" {
+		writeError(w, http.StatusUnauthorized, "MissingToken", "The IMDSv2 token header is missing")
+		return
+	}
+	if err := cfg.ValidateToken(token); err != nil {
+		writeError(w, http.StatusUnauthorized, "InvalidToken", err.Error())
+		return
+	}
+
+	w.Header().Add("Content-type", "text/plain")
+	w.Write([]byte(`Coreweave`))
+}
+
 // This is based on the example output in the IMDS documentation:
 // https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html#instance-metadata-security-credentials
 type Response struct {
@@ -217,10 +237,10 @@ type Response struct {
 	Type        string
 }
 
-func generateResponseWithTemporaryCredentials(awsConfig aws.Config) (Response, error) {
+func generateResponseWithTemporaryCredentials(ctx context.Context, awsConfig aws.Config) (Response, error) {
 	response := Response{}
 
-	creds, err := awsConfig.Credentials.Retrieve(context.TODO())
+	creds, err := awsConfig.Credentials.Retrieve(ctx)
 	if err != nil {
 		return response, err
 	}
@@ -232,6 +252,10 @@ func generateResponseWithTemporaryCredentials(awsConfig aws.Config) (Response, e
 	}
 
 	expirationTime := creds.Expires.UTC()
+	if expirationTime.IsZero() {
+		expirationTime = time.Now().Add(time.Minute * 15)
+	}
+
 	expiration, err := expirationTime.MarshalText()
 	if err != nil {
 		return response, err
@@ -250,9 +274,9 @@ func generateResponseWithTemporaryCredentials(awsConfig aws.Config) (Response, e
 	return response, nil
 }
 
-func (cfg *Config) GenerateResponse() (Response, error) {
+func (cfg *Config) GenerateResponse(ctx context.Context) (Response, error) {
 	response := Response{}
-	awsCreds, err := cfg.AwsConfig.Credentials.Retrieve(context.TODO())
+	awsCreds, err := cfg.AwsConfig.Credentials.Retrieve(ctx)
 	if err != nil {
 		return response, err
 	}
@@ -260,7 +284,7 @@ func (cfg *Config) GenerateResponse() (Response, error) {
 	if awsCreds.SessionToken == "" {
 		// Convert static credentials to temporary credentials so the return value
 		// always has a session token and expiration
-		return generateResponseWithTemporaryCredentials(cfg.AwsConfig)
+		return generateResponseWithTemporaryCredentials(ctx, cfg.AwsConfig)
 	}
 
 	// Make sure there's an expiration (even if it's wrong)
@@ -268,7 +292,7 @@ func (cfg *Config) GenerateResponse() (Response, error) {
 	if !awsCreds.Expires.IsZero() {
 		expirationTime = awsCreds.Expires
 	} else {
-		expirationTime = time.Now().Add(time.Hour)
+		expirationTime = time.Now().Add(time.Minute * 15)
 	}
 
 	// time.Time has a method of .String() but it returns it in a format we can't use.
@@ -296,8 +320,8 @@ func (cfg *Config) GenerateResponse() (Response, error) {
 	return response, nil
 }
 
-func (cfg *Config) handleCredentialRequest(w http.ResponseWriter, _ *http.Request) {
-	response, err := cfg.GenerateResponse()
+func (cfg *Config) handleCredentialRequest(w http.ResponseWriter, req *http.Request) {
+	response, err := cfg.GenerateResponse(req.Context())
 	if err != nil {
 		log.Println(err)
 		writeError(w, http.StatusInternalServerError, "InternalServerError", "Something went wrong")
@@ -324,6 +348,8 @@ the role_name can be blank
 func (cfg *Config) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if req.URL.Path == "/latest/api/token" {
 		cfg.handleTokenRequest(w, req)
+	} else if req.URL.Path == "/latest/meta-data/iam/security-credentials/" {
+		cfg.handleRoleRequest(w, req)
 	} else if strings.HasPrefix(req.URL.Path, "/latest/meta-data/iam/security-credentials/") {
 		cfg.handleRequest(w, req)
 	} else {
@@ -355,7 +381,13 @@ func main() {
 		*spec = "localhost" + *spec
 	}
 
-	awsConfig, err := config.LoadDefaultConfig(context.TODO(), config.WithSharedConfigProfile(*profile))
+	awsConfig, err := config.LoadDefaultConfig(
+		context.TODO(),
+		config.WithSharedConfigProfile(*profile),
+		// temporary hack
+		config.WithCredentialsCacheOptions(func(cco *aws.CredentialsCacheOptions) {
+			cco.ExpiryWindow = time.Second * 30
+		}))
 	if err != nil {
 		log.Fatal(err)
 	}
