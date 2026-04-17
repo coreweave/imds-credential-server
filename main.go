@@ -87,11 +87,9 @@ func NewConfig(awsCfg aws.Config) *Config {
 func (cfg *Config) EncodeToken(ttl time.Duration) []byte {
 	now := time.Now().UTC()
 	expiration := now.Add(ttl)
-	expirationBytes, err := expiration.MarshalText()
-	if err != nil {
-		log.Fatal(err)
-	}
-	encodedExpirationStr := base64.URLEncoding.EncodeToString(expirationBytes)
+	expirationTimestamp := expiration.Unix()
+	expirationStr := strconv.FormatInt(expirationTimestamp, 10)
+	expirationBytes := []byte(expirationStr)
 
 	mac := hmac.New(sha256.New, cfg.secret)
 	mac.Write(expirationBytes)
@@ -99,9 +97,9 @@ func (cfg *Config) EncodeToken(ttl time.Duration) []byte {
 	macBytes := mac.Sum(nil)
 	macStr := base64.URLEncoding.EncodeToString(macBytes)
 
-	token := make([]byte, 0, len(encodedExpirationStr)+len(macStr)+1)
+	token := make([]byte, 0, len(expirationStr)+len(macStr)+1)
 
-	token = append(token, encodedExpirationStr...)
+	token = append(token, expirationStr...)
 	token = append(token, "."...)
 	token = append(token, macStr...)
 
@@ -113,25 +111,22 @@ func (cfg *Config) ValidateToken(token string) error {
 	if len(parts) != 2 {
 		return errors.New("The IMDSv2 token is invalid")
 	}
-	encodedExpirationStr := parts[0]
+	expirationStr := parts[0]
 	macStr := parts[1]
 
-	expirationBytes, err := base64.URLEncoding.DecodeString(encodedExpirationStr)
+	expirationTimestamp, err := strconv.ParseInt(expirationStr, 10, 64)
 	if err != nil {
 		return errors.New("The IMDSv2 token is invalid")
 	}
 
-	var expiration time.Time
-	err = expiration.UnmarshalText(expirationBytes)
-	if err != nil {
-		return errors.New("The IMDSv2 token is invalid")
-	}
+	expiration := time.Unix(expirationTimestamp, 0).UTC()
 
 	macBytes, err := base64.URLEncoding.DecodeString(macStr)
 	if err != nil {
 		return errors.New("The IMDSv2 token is invalid")
 	}
 
+	expirationBytes := []byte(expirationStr)
 	mac := hmac.New(sha256.New, cfg.secret)
 	mac.Write(expirationBytes)
 
