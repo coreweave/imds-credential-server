@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.4](https://github.com/coreweave/imds-credential-server/compare/v1.0.3...v1.0.4) (2026-04-17)
+
+
+### Bug Fixes
+
+* Reduce token length to &lt; 64 using unix timestamp ([723a532](https://github.com/coreweave/imds-credential-server/commit/723a53218945cf6cf9461fea6a5fd48a0d20d080))
+
 ## [1.0.3](https://github.com/coreweave/imds-credential-server/compare/v1.0.2...v1.0.3) (2026-04-16)
 
 
